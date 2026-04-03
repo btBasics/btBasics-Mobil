@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
-import { getAll, put, remove } from '../store/db.js'
+import { getAll, put, remove, getById } from '../store/db.js'
 import { uploadPhoto } from './api.js'
-import { updatePhotoStatus } from '../store/photos.js'
+import { updatePhotoStatus, getPhotoBlob } from '../store/photos.js'
 
 export const queueState = reactive({
   pending: [],
@@ -31,8 +31,16 @@ export async function processQueue() {
   for (const item of items) {
     try {
       if (item.type === 'photo') {
-        await uploadPhoto(item.payload)
-        await updatePhotoStatus(item.payload.id, 'sent')
+        const rec = await getById('photos', item.photoId)
+        if (rec) {
+          const blob = rec.buffer
+            ? new Blob([rec.buffer], { type: 'image/jpeg' })
+            : await getPhotoBlob(item.photoId)
+          if (blob) {
+            await uploadPhoto({ ...rec, blob })
+            await updatePhotoStatus(item.photoId, 'sent')
+          }
+        }
       }
       await remove('syncQueue', item.id)
       const idx = queueState.pending.findIndex((q) => q.id === item.id)

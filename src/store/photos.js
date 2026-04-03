@@ -8,8 +8,15 @@ export const photoState = reactive({
 
 export async function loadPhotos() {
   photoState.loading = true
-  photoState.photos = await getAll('photos')
-  photoState.photos.sort((a, b) => b.createdAt - a.createdAt)
+  const rows = await getAll('photos')
+  // ArrayBuffer → Blob zurückwandeln (IDB speichert als ArrayBuffer für Mobile-Kompatibilität)
+  for (const r of rows) {
+    if (r.buffer && !r.blob) {
+      r.blob = new Blob([r.buffer], { type: 'image/jpeg' })
+    }
+  }
+  rows.sort((a, b) => b.createdAt - a.createdAt)
+  photoState.photos = rows
   photoState.loading = false
 }
 
@@ -17,19 +24,22 @@ export async function addPhoto(blob, meta, annotationBlob = null) {
   const id = crypto.randomUUID()
   const compressed = await compressImage(blob)
   const sha = await sha256(compressed)
-  const record = {
+  // Blob → ArrayBuffer für zuverlässige IDB-Speicherung auf Mobile
+  const buffer = await compressed.arrayBuffer()
+  const dbRecord = {
     id,
-    blob: compressed,
-    annotationBlob,
+    buffer,
     sha256: sha,
     meta: { ...meta },
     syncStatus: 'local',
     createdAt: Date.now(),
     gps: meta.gps || null,
   }
-  await put('photos', record)
-  photoState.photos.unshift(record)
-  return record
+  await put('photos', dbRecord)
+  // In-memory record behält den Blob für sofortige Anzeige
+  const memRecord = { ...dbRecord, blob: compressed }
+  photoState.photos.unshift(memRecord)
+  return memRecord
 }
 
 export async function deletePhoto(id) {
@@ -45,6 +55,16 @@ export async function updatePhotoStatus(id, status) {
   await put('photos', rec)
   const local = photoState.photos.find((p) => p.id === id)
   if (local) local.syncStatus = status
+}
+
+/** Gibt den Blob eines Fotos zurück (aus Memory oder IDB) */
+export async function getPhotoBlob(id) {
+  const local = photoState.photos.find((p) => p.id === id)
+  if (local?.blob) return local.blob
+  const rec = await getById('photos', id)
+  if (!rec) return null
+  if (rec.buffer) return new Blob([rec.buffer], { type: 'image/jpeg' })
+  return rec.blob || null
 }
 
 /** Canvas-basierte Kompression: max 1200×1200, JPEG stufenweise bis <500KB */

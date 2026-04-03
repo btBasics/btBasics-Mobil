@@ -42,7 +42,7 @@ async function send() {
       }
       meta.filename = buildFilename(meta)
       const record = await addPhoto(blob, meta)
-      await enqueue({ type: 'photo', payload: record })
+      await enqueue({ type: 'photo', photoId: record.id })
     }
     navigate('gallery')
   } finally {
