@@ -1,0 +1,17 @@
+{
+  "name": "btBasics Feldapp",
+  "short_name": "btBasics",
+  "description": "Mobiles Protokoll & Foto-Dokumentation für btBasics",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0f1a10",
+  "background_color": "#0f1a10",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
