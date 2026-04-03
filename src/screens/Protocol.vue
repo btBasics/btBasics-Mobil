@@ -1,7 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, inject } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, inject } from 'vue'
 import { protoState, loadProtocols, saveProtocol, getActiveProtocol, setActiveProtocol,
-         createNewProtocol, addBereichToActive,
+         createNewProtocol, addBereichToActive, removeBereichFromActive,
          STATUS_CODES, punktNummer, expandFrist, createPunkt, createBereich, isLocked } from '../store/protocol.js'
 import KuerzelPicker from '../components/KuerzelPicker.vue'
 import { getSetting } from '../store/db.js'
@@ -24,6 +24,9 @@ const newVerfasser = ref('')
 const showNewBereich = ref(false)
 const nbKennung = ref('')
 const nbTitel = ref('')
+
+// Bereich-Löschen Confirm
+const confirmDeleteBereich = ref(null)
 
 onMounted(async () => {
   await loadProtocols()
@@ -82,12 +85,35 @@ function onFristBlur(punkt) {
 }
 
 let saveTimer = null
+let dirty = false
 function autoSave() {
+  dirty = true
   clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    if (proto.value) saveProtocol(proto.value)
-  }, 500)
+  saveTimer = setTimeout(() => flushSave(), 500)
 }
+
+function flushSave() {
+  clearTimeout(saveTimer)
+  if (dirty && proto.value) {
+    dirty = false
+    saveProtocol(proto.value)
+  }
+}
+
+// Sofort speichern wenn App unsichtbar wird oder geschlossen wird
+function onVisChange() { if (document.hidden) flushSave() }
+function onBeforeUnload() { flushSave() }
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisChange)
+  window.addEventListener('beforeunload', onBeforeUnload)
+})
+
+onBeforeUnmount(() => {
+  flushSave()
+  document.removeEventListener('visibilitychange', onVisChange)
+  window.removeEventListener('beforeunload', onBeforeUnload)
+})
 
 function statusStyle(code) {
   const s = STATUS_CODES[code] || STATUS_CODES['']
@@ -114,6 +140,11 @@ async function doAddBereich() {
   await addBereichToActive(nbKennung.value.toUpperCase(), nbTitel.value)
   showNewBereich.value = false
   nbKennung.value = ''; nbTitel.value = ''
+}
+
+async function doDeleteBereich(idx) {
+  await removeBereichFromActive(idx)
+  confirmDeleteBereich.value = null
 }
 
 function exportPDF() {
@@ -187,10 +218,12 @@ function exportPDF() {
       </div>
 
       <!-- Bereiche + Punkte -->
-      <div v-for="bereich in filteredBereiche" :key="bereich.kennung" class="bereich card">
+      <div v-for="(bereich, bIdx) in filteredBereiche" :key="bereich.kennung" class="bereich card">
         <div class="bereich-header">
           <span class="bereich-kennung">{{ bereich.kennung }}</span>
           <span class="bereich-titel">{{ bereich.titel }}</span>
+          <button class="bereich-delete-btn" @click="confirmDeleteBereich = bIdx"
+                  title="Bereich löschen">🗑</button>
         </div>
 
         <div v-for="(punkt, pIdx) in bereich.punkte" :key="pIdx" class="punkt"
@@ -287,6 +320,19 @@ function exportPDF() {
       </div>
     </div>
 
+    <!-- Bereich löschen Confirm -->
+    <div v-if="confirmDeleteBereich !== null" class="overlay" @click.self="confirmDeleteBereich = null">
+      <div class="dialog-card">
+        <h3>Bereich löschen?</h3>
+        <p class="delete-warning">Bereich <strong>{{ proto.bereiche[confirmDeleteBereich]?.kennung }} – {{ proto.bereiche[confirmDeleteBereich]?.titel }}</strong>
+          mit {{ proto.bereiche[confirmDeleteBereich]?.punkte?.length || 0 }} Punkt(en) wird unwiderruflich gelöscht.</p>
+        <div class="dialog-actions">
+          <button class="btn btn-ghost" @click="confirmDeleteBereich = null">Abbrechen</button>
+          <button class="btn btn-danger" @click="doDeleteBereich(confirmDeleteBereich)">Löschen</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Neuer Bereich Dialog -->
     <div v-if="showNewBereich" class="overlay" @click.self="showNewBereich = false">
       <div class="dialog-card">
@@ -330,7 +376,14 @@ function exportPDF() {
   background: var(--accent); color: #fff; width: 30px; height: 30px;
   border-radius: 8px; display: flex; align-items: center; justify-content: center;
 }
-.bereich-titel { font-weight: 600; font-size: 15px; }
+.bereich-titel { font-weight: 600; font-size: 15px; flex: 1; }
+.bereich-delete-btn {
+  background: none; border: none; font-size: 16px; cursor: pointer;
+  opacity: .4; padding: 4px 6px; border-radius: 6px;
+}
+.bereich-delete-btn:hover { opacity: 1; background: var(--danger); }
+.delete-warning { font-size: 14px; color: var(--text-secondary); margin: 8px 0 4px; line-height: 1.5; }
+.btn-danger { background: var(--danger); color: #fff; border: none; }
 .punkt {
   position: relative; border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 10px; margin-bottom: 8px; background: var(--bg);

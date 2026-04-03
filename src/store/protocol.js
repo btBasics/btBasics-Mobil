@@ -52,6 +52,14 @@ export async function addBereichToActive(kennung, titel) {
   await saveProtocol(p)
 }
 
+/** Bereich aus dem aktiven Protokoll entfernen */
+export async function removeBereichFromActive(idx) {
+  const p = getActiveProtocol()
+  if (!p || idx < 0 || idx >= p.bereiche.length) return
+  p.bereiche.splice(idx, 1)
+  await saveProtocol(p)
+}
+
 export async function setActiveProtocol(id) {
   protoState.activeId = id
 }
