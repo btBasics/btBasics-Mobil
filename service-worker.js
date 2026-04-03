@@ -1,9 +1,10 @@
-const CACHE_NAME = 'btbasics-feldapp-v1'
+const CACHE_NAME = 'btbasics-feldapp-v2'
 const BASE = self.registration.scope
 const PRECACHE_URLS = [
   BASE,
   `${BASE}index.html`,
   `${BASE}manifest.json`,
+  `${BASE}btbasics_intro_final.html`,
 ]
 
 self.addEventListener('install', (event) => {
@@ -39,7 +40,21 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // App assets: cache-first
+  // Navigation requests (HTML): network-first → immer aktuelle Version
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          const clone = res.clone()
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
+          return res
+        })
+        .catch(() => caches.match(event.request))
+    )
+    return
+  }
+
+  // Static assets (JS/CSS/images): cache-first
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached
