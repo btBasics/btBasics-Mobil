@@ -1,4 +1,4 @@
-const CACHE_NAME = 'btbasics-feldapp-v2'
+const CACHE_NAME = 'btbasics-feldapp-v3'
 const BASE = self.registration.scope
 const PRECACHE_URLS = [
   BASE,
