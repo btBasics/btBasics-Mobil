@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 
 const emit = defineEmits(['done'])
 const visible = ref(true)
+const base = import.meta.env.BASE_URL || '/'
 let timer = null
 
 onMounted(() => {
@@ -21,7 +22,7 @@ function skip() {
 
 <template>
   <div v-if="visible" class="intro-overlay" @click.self="skip">
-    <iframe class="intro-frame" src="/btbasics_intro_final.html"
+    <iframe class="intro-frame" :src="`${base}btbasics_intro_final.html`"
             frameborder="0" allowfullscreen />
     <button class="skip-btn" @click="skip">Überspringen ›</button>
   </div>
