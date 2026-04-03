@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue'
 import { protoState, loadProtocols, saveProtocol, getActiveProtocol, setActiveProtocol,
+         createNewProtocol, addBereichToActive,
          STATUS_CODES, punktNummer, expandFrist, createPunkt, createBereich, isLocked } from '../store/protocol.js'
 import KuerzelPicker from '../components/KuerzelPicker.vue'
 import { getSetting } from '../store/db.js'
@@ -11,6 +12,18 @@ const editingPunkt = ref(null)
 const showStatusPicker = ref(null)
 const showZustaendigPicker = ref(null)
 const beteiligte = ref([])
+
+// Neu-Anlegen Dialog
+const showNewDialog = ref(false)
+const newTitel = ref('')
+const newDatum = ref('')
+const newOrt = ref('')
+const newVerfasser = ref('')
+
+// Bereich-Anlegen Dialog
+const showNewBereich = ref(false)
+const nbKennung = ref('')
+const nbTitel = ref('')
 
 onMounted(async () => {
   await loadProtocols()
@@ -84,13 +97,68 @@ function statusStyle(code) {
 function pNr(punkt, kennung) {
   return punktNummer(kennung, punkt.erstellt_proto_nr, punkt.erstellt_p_idx)
 }
+
+async function doCreateProto() {
+  await createNewProtocol(newTitel.value, newDatum.value, newOrt.value, newVerfasser.value)
+  showNewDialog.value = false
+  newTitel.value = ''; newDatum.value = ''; newOrt.value = ''; newVerfasser.value = ''
+}
+
+function openNewDialog() {
+  newDatum.value = new Date().toLocaleDateString('de-AT')
+  showNewDialog.value = true
+}
+
+async function doAddBereich() {
+  if (!nbKennung.value) return
+  await addBereichToActive(nbKennung.value.toUpperCase(), nbTitel.value)
+  showNewBereich.value = false
+  nbKennung.value = ''; nbTitel.value = ''
+}
+
+function exportPDF() {
+  const p = proto.value
+  if (!p) return
+  const rows = []
+  for (const b of (p.bereiche || [])) {
+    for (const pt of (b.punkte || [])) {
+      const sc = STATUS_CODES[pt.status] || STATUS_CODES['']
+      rows.push(`<tr>
+        <td style="font-family:monospace;font-weight:700">${pNr(pt, b.kennung)}</td>
+        <td><span style="background:${sc.color};color:${sc.textColor};padding:2px 8px;border-radius:99px;font-size:11px">${sc.label}</span></td>
+        <td>${(pt.beschreibung || '').replace(/\n/g, '<br>')}</td>
+        <td>${(pt.zustaendig || []).join(', ')}</td>
+        <td>${pt.durch_wann || ''}</td>
+      </tr>`)
+    }
+  }
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${p.titel || 'Protokoll'}</title>
+<style>
+  body{font-family:system-ui,sans-serif;font-size:13px;margin:20px;color:#222}
+  h1{font-size:20px;margin-bottom:4px} .meta{color:#666;font-size:12px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:#f0f0f0;font-size:12px}
+  @media print{body{margin:0} @page{margin:12mm}}
+</style></head><body>
+<h1>${p.titel || 'Protokoll Nr. ' + p.id}</h1>
+<div class="meta">${[p.datum, p.ort, p.verfasser].filter(Boolean).join(' · ')}</div>
+<table><thead><tr><th>Nr.</th><th>Status</th><th>Beschreibung</th><th>Zuständig</th><th>Frist</th></tr></thead>
+<tbody>${rows.join('')}</tbody></table>
+</body></html>`
+  const win = window.open('', '_blank')
+  win.document.write(html)
+  win.document.close()
+  setTimeout(() => { win.print() }, 400)
+}
 </script>
 
 <template>
   <div class="proto-screen">
     <div v-if="!proto" class="empty">
-      <p>Kein Protokoll geladen.</p>
-      <p class="hint">Synchronisiere mit dem Desktop um ein Protokoll zu laden.</p>
+      <p>Kein Protokoll vorhanden.</p>
+      <button class="btn btn-primary" @click="openNewDialog" style="margin-top:12px">+ Neues Protokoll</button>
     </div>
 
     <template v-else>
@@ -100,12 +168,16 @@ function pNr(punkt, kennung) {
           <button v-for="id in protoIds" :key="id"
                   class="proto-tab" :class="{ active: protoState.activeId === id }"
                   @click="switchProto(id)">Nr. {{ id }}</button>
+          <button class="proto-tab new-tab" @click="openNewDialog">+</button>
         </div>
         <h2 class="proto-title">{{ proto.titel || 'Protokoll' }}</h2>
         <div class="proto-meta">
           <span v-if="proto.datum">📅 {{ proto.datum }}</span>
           <span v-if="proto.ort">📍 {{ proto.ort }}</span>
           <span v-if="proto.verfasser">✍️ {{ proto.verfasser }}</span>
+        </div>
+        <div class="proto-actions">
+          <button class="btn btn-ghost btn-sm" @click="exportPDF">📄 PDF</button>
         </div>
       </div>
 
@@ -160,6 +232,8 @@ function pNr(punkt, kennung) {
 
         <button class="btn btn-ghost add-punkt-btn" @click="addPunkt(bereich)">+ Punkt</button>
       </div>
+
+      <button class="btn btn-ghost add-bereich-btn" @click="showNewBereich = true">+ Bereich</button>
     </template>
 
     <!-- Status Picker Overlay -->
@@ -185,6 +259,52 @@ function pNr(punkt, kennung) {
                    @pick="(k) => { showZustaendigPicker.zustaendig = [k]; showZustaendigPicker = null; autoSave() }"
                    @pickMulti="(list) => { setZustaendig(showZustaendigPicker, list) }"
                    @close="showZustaendigPicker = null" />
+
+    <!-- Neues Protokoll Dialog -->
+    <div v-if="showNewDialog" class="overlay" @click.self="showNewDialog = false">
+      <div class="dialog-card">
+        <h3>Neues Protokoll</h3>
+        <div class="dialog-field">
+          <label class="field-label">Titel *</label>
+          <input class="input" v-model="newTitel" placeholder="z.B. Baubesprechung Projekt X" />
+        </div>
+        <div class="dialog-field">
+          <label class="field-label">Datum</label>
+          <input class="input" v-model="newDatum" />
+        </div>
+        <div class="dialog-field">
+          <label class="field-label">Ort</label>
+          <input class="input" v-model="newOrt" placeholder="Baustellenadresse" />
+        </div>
+        <div class="dialog-field">
+          <label class="field-label">Verfasser</label>
+          <input class="input" v-model="newVerfasser" placeholder="Name / Kürzel" />
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-ghost" @click="showNewDialog = false">Abbrechen</button>
+          <button class="btn btn-primary" :disabled="!newTitel" @click="doCreateProto">Anlegen</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Neuer Bereich Dialog -->
+    <div v-if="showNewBereich" class="overlay" @click.self="showNewBereich = false">
+      <div class="dialog-card">
+        <h3>Neuer Bereich</h3>
+        <div class="dialog-field">
+          <label class="field-label">Kennung * (1 Buchstabe)</label>
+          <input class="input" v-model="nbKennung" maxlength="2" placeholder="z.B. B" style="width:60px" />
+        </div>
+        <div class="dialog-field">
+          <label class="field-label">Titel</label>
+          <input class="input" v-model="nbTitel" placeholder="z.B. Haustechnik" />
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-ghost" @click="showNewBereich = false">Abbrechen</button>
+          <button class="btn btn-primary" :disabled="!nbKennung" @click="doAddBereich">Hinzufügen</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -251,4 +371,16 @@ function pNr(punkt, kennung) {
   padding: 10px; border-radius: var(--radius-sm); border: none;
   font-size: 14px; font-weight: 600; cursor: pointer;
 }
+.new-tab { background: transparent; border-style: dashed; font-size: 16px; color: var(--accent); }
+.proto-actions { margin-top: 8px; display: flex; gap: 8px; }
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+.add-bereich-btn { width: 100%; margin-top: 4px; font-size: 13px; border-style: dashed; }
+.dialog-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 20px; max-width: 360px; width: 100%;
+}
+.dialog-card h3 { font-size: 17px; font-weight: 600; margin-bottom: 14px; }
+.dialog-field { margin-bottom: 12px; }
+.dialog-field .field-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: block; }
+.dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 </style>

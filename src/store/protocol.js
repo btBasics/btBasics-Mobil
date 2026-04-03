@@ -21,6 +21,37 @@ export async function saveProtocol(proto) {
   protoState.protocols[proto.id] = proto
 }
 
+/** Neues Protokoll offline erstellen */
+export async function createNewProtocol(titel, datum, ort, verfasser) {
+  // Nächste freie ID finden
+  const ids = Object.keys(protoState.protocols).map(Number).filter((n) => !isNaN(n))
+  const nextId = ids.length > 0 ? String(Math.max(...ids) + 1) : '1'
+  const proto = {
+    id: nextId,
+    titel: titel || 'Neues Protokoll',
+    datum: datum || new Date().toLocaleDateString('de-AT'),
+    ort: ort || '',
+    verfasser: verfasser || '',
+    bereiche: [
+      createBereich('A', 'Allgemein'),
+    ],
+    lastModified: Date.now(),
+    createdOffline: true,
+  }
+  await put('protocols', proto)
+  protoState.protocols[nextId] = proto
+  protoState.activeId = nextId
+  return proto
+}
+
+/** Bereich zum aktiven Protokoll hinzufügen */
+export async function addBereichToActive(kennung, titel) {
+  const p = getActiveProtocol()
+  if (!p) return
+  p.bereiche.push(createBereich(kennung, titel))
+  await saveProtocol(p)
+}
+
 export async function setActiveProtocol(id) {
   protoState.activeId = id
 }
